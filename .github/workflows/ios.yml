@@ -1,14 +1,12 @@
 name: iOS build and submit
 
 # Builds the iOS app on a free GitHub macOS runner with `eas build --local`
-# (does NOT use EAS cloud build quota) and submits to TestFlight.
+# (no EAS cloud quota) and submits to TestFlight.
 # Public repo -> GitHub-hosted macOS runners are free.
 #
-# Required repository secrets (Settings -> Secrets and variables -> Actions):
-#   EXPO_TOKEN   an Expo access token (expo.dev -> Settings -> Access tokens).
-#                Lets eas authenticate non-interactively and fetch the iOS
-#                credentials already configured on your EAS account.
-#   ASC_KEY_B64  your AuthKey_YRMDQTX998.p8, base64-encoded, for `eas submit`.
+# Repository secrets (Settings -> Secrets and variables -> Actions -> Repository secrets):
+#   EXPO_TOKEN   Expo access token (expo.dev -> Settings -> Access tokens). Required for the build.
+#   ASC_KEY_B64  AuthKey_YRMDQTX998.p8, base64-encoded. Required only for the TestFlight submit.
 
 on:
   workflow_dispatch:
@@ -32,16 +30,8 @@ jobs:
       - name: Install EAS CLI
         run: npm i -g eas-cli
 
-      - name: Restore App Store Connect API key
-        run: |
-          mkdir -p asc
-          echo "${{ secrets.ASC_KEY_B64 }}" | base64 --decode > asc/AuthKey.p8
-
       - name: Build iOS (local, no EAS quota)
         run: eas build --platform ios --profile production --local --non-interactive --output ./app.ipa
-
-      - name: Submit to TestFlight
-        run: eas submit --platform ios --profile ci --path ./app.ipa --non-interactive
 
       - name: Upload IPA artifact
         if: always()
@@ -50,3 +40,15 @@ jobs:
           name: pet-chores-ipa
           path: ./app.ipa
           if-no-files-found: ignore
+
+      - name: Submit to TestFlight
+        env:
+          ASC_KEY_B64: ${{ secrets.ASC_KEY_B64 }}
+        run: |
+          if [ -z "$ASC_KEY_B64" ]; then
+            echo "::warning::ASC_KEY_B64 secret is empty. The build succeeded and the IPA is saved as an artifact. Set the ASC_KEY_B64 repository secret and re-run to auto-submit to TestFlight."
+            exit 0
+          fi
+          mkdir -p asc
+          printf '%s' "$ASC_KEY_B64" | base64 --decode > asc/AuthKey.p8
+          eas submit --platform ios --profile ci --path ./app.ipa --non-interactive
